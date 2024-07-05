@@ -1,0 +1,20 @@
+---
+title: "RNAseq"
+author: "Lakshmi"
+date: "2024-07-05"
+output: html_document
+---
+
+# Basic tutorial on RNASeq
+
+```{r}
+## Loading all the necessary packages
+library(tidyverse) #data
+library(DESeq2) #ngs
+library(ggplot2) #plot
+library(ggrepel) #plot
+library(ComplexHeatmap) #plot
+library(clusterProfiler) #pathway
+library(org.Hs.eg.db) #pathway
+```
+
