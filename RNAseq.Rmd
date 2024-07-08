@@ -21,6 +21,7 @@ output: html_document
 # BiocManager::install("ComplexHeatmap")
 # BiocManager::install("clusterProfiler")
 # BiocManager::install("org.Hs.eg.db")
+# BiocManager::install("apeglm")
 
 ## Loading all the necessary packages
 library(tidyverse) #data
@@ -31,6 +32,7 @@ library(DESeq2) #ngs
 library(ComplexHeatmap) #plot
 library(clusterProfiler) #pathway
 library(org.Hs.eg.db) #pathway
+library(apeglm)
 ```
 
 ## load data 
@@ -59,16 +61,59 @@ Here, we have piped counts to do a grouping by gene symbol, then summarizing "ac
 ```{r}
 avg_counts = counts %>% group_by(GeneSymbol) %>% summarise(across(everything(),mean))
 sum(duplicated(avg_counts$GeneSymbol))
-avg_counts = avg_counts %>% mutate(across(where(is.numeric),as.integer)) #cant do as.integer(avg_counts) as its a tibble not a base data.frame. This also lets go of the gene symbol column (str), and now we have only 6 columns. 
+avg_counts = avg_counts %>% mutate(across(where(is.numeric),as.integer)) %>% dplyr::select(-c(GeneSymbol)) #cant do as.integer(avg_counts) as its a tibble not a base data.frame. This also lets go of the gene symbol column (str), and now we have only 6 columns. 
 ```
 
 ## DESeq2
 
-Now, we are ready for DESeq Analysis 
+Now, we are ready for DESeq Analysis. First we get the DESeq dataset 
 ```{r}
 dds = DESeqDataSetFromMatrix(avg_counts, colData = metadata, design = ~ Strain) #relationship between all the variables (~) with Strain 
-
+saveRDS(dds, "./results/dds.rds")
 ```
+
+Now, we do soft filtering
+```{r}
+#default is normalized = FALSE. For every gene, we check whether the counts in the strain is >= 10 for alteast >= 3 samples
+dim(dds)
+idx <- rowSums(counts(dds, normalized=FALSE) >= 10) >= 3
+dds_filtered <- dds[idx, ]
+dim(dds_filtered) # So many of them have so few counts that we have ignored them
+```
+
+```{r}
+dds_deseq = DESeq(dds_filtered)
+saveRDS(dds_deseq, "./results/dds_deseq.rds")
+head(results(dds_deseq))
+#MLE: Maximum liklihood estimation
+#baseMEan is the average normalizes count values with the size factor 
+#log2 fold change indicates the expression level of the test wrt to the control
+#lfcse log fold change standard error 
+#stat, pvalue and adjusted for many samples
+```
+
+## factors in DESEQ
+```{r}
+#Size factors
+sizeFactors(dds_deseq) #We likely divide this on the counts to get normalized counts
+colSums(counts(dds_filtered)) #total counts for every sample. this is sort of proportional to the size factors
+
+#Dispersion
+# Dispersion is a measure of spread or variability in the data. Dispersion of 0.01 means that there is 10% variation around the mean expected across biological replicates
+# lower mean, higher dispersion; higher mean lower dispersion; same mean, depends on variance
+# Dispersion is an estimation (different from variance) based on shrinkage. Increasing mean counts decreasing dispersion. Any different plot will be bad and not suitable for DESEQ
+
+plotDispEsts(dds_deseq)
+```
+
+Independant filering to get rid of unnecessary genes
+
+```{r}
+dds_deseq_sig_res = results(dds_deseq, independentFiltering = TRUE, alpha = 0.05)
+summary(dds_deseq_sig_res)
+dds_deseq_sig_res_lfc <- lfcShrink(dds_deseq, coef = 2, res = dds_deseq_sig_res)
+```
+
 
 
 
