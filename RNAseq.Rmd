@@ -112,12 +112,40 @@ Genes with large fold changes not due to low read counts remain un-shrunken whil
 dds_deseq_sig_res = results(dds_deseq, independentFiltering = TRUE, alpha = 0.05)
 summary(dds_deseq_sig_res)
 dds_deseq_sig_res_lfc <- lfcShrink(dds_deseq, coef = 2, res = dds_deseq_sig_res) #This doesn't change the baseMean, pvalue or the adjusted p value. Only the log fold change is reduced and the associated lfcse is changed. 
+dds_deseq_sig_res_lfc
+```
+
+Now, we make the de dataframe for visualization
+```{r}
+res_de = data.frame(dds_deseq_sig_res_lfc)
+res_de = res_de %>% drop_na(padj)
+head(res_de)
+```
+
+
+```{r}
+countNorm = counts(dds_deseq, normalized = TRUE) %>% as.data.frame()
+head(countNorm)
 ```
 
 ```{r}
-counts(dds_deseq, normalized = TRUE)
-```
+cumulative_DE <- function(df_df, FC_limit = 2, padj_name = 'padj', 
+                          FC_name = 'log2FoldChange', padj_threshold = 0.05, step = 0.2){
+  
+  FC_range = seq(0, FC_limit, step)
+  nDE_vct <- c()
+  for (logFC in FC_range){
+    nDE = df_df %>% filter(get(padj_name) < padj_threshold, 
+                                get(FC_name) > logFC | get(FC_name) < -logFC)
+    nDE_vct <- append(nDE_vct, length(rownames(nDE)))
+  }
+  cumulative_DE_df = data.frame(FC_range,nDE_vct)
+  colnames(cumulative_DE_df) = c("Log_FC", "nDE")
+  return(cumulative_DE_df)
+}
 
+cumulative_DE_dfans = cumulative_DE(res_de)
+```
 
 
 
