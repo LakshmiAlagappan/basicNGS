@@ -40,6 +40,13 @@ counts <- read.csv("./data/tutorial_counts.csv", check.names = FALSE)
 metadata <- read.csv("./data/tutorial_metadata.csv", row.names = 1)
 ```
 
+This basically sets the basis of the analysis, with "Mock" being level 1 and "Virus being level 2
+```{r}
+str(metadata)
+metadata$Strain = factor(metadata$Strain)
+metadata$Strain = relevel(metadata$Strain, ref = "Mock")
+```
+
 This analysis below shows that the count matrix has duplicated "gene names" but in actual it is all "-" genes without names
 ```{r}
 head(counts)
@@ -52,7 +59,15 @@ Here, we have piped counts to do a grouping by gene symbol, then summarizing "ac
 ```{r}
 avg_counts = counts %>% group_by(GeneSymbol) %>% summarise(across(everything(),mean))
 sum(duplicated(avg_counts$GeneSymbol))
-avg_counts[] = apply(avg_counts, 1, FUN = as.integer) #cant do as.integer(avg_counts) as its a tibble not a base data.frame. This also lets go of the gene symbol column, and now we have only 6 columns. 
+avg_counts = avg_counts %>% mutate(across(where(is.numeric),as.integer)) #cant do as.integer(avg_counts) as its a tibble not a base data.frame. This also lets go of the gene symbol column (str), and now we have only 6 columns. 
+```
+
+## DESeq2
+
+Now, we are ready for DESeq Analysis 
+```{r}
+dds = DESeqDataSetFromMatrix(avg_counts, colData = metadata, design = ~ Strain) #relationship between all the variables (~) with Strain 
+
 ```
 
 
