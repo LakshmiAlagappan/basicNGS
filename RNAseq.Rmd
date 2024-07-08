@@ -59,9 +59,8 @@ counts[duplicated(counts$GeneSymbol),]
 
 Here, we have piped counts to do a grouping by gene symbol, then summarizing "across" every column ("everything") using mean. Now, its no more duplicated. However, note that this made the "counts" float. Need to convert this to integer. 
 ```{r}
-avg_counts = counts %>% group_by(GeneSymbol) %>% summarise(across(everything(),mean))
-sum(duplicated(avg_counts$GeneSymbol))
-avg_counts = avg_counts %>% mutate(across(where(is.numeric),as.integer)) %>% dplyr::select(-c(GeneSymbol)) #cant do as.integer(avg_counts) as its a tibble not a base data.frame. This also lets go of the gene symbol column (str), and now we have only 6 columns. 
+avg_counts = counts %>% group_by(GeneSymbol) %>% summarise(across(everything(),mean))%>%column_to_rownames("GeneSymbol")
+avg_counts = avg_counts %>% mutate(across(everything(),as.integer))#cant do as.integer(avg_counts) as its a tibble not a base data.frame. This also lets go of the gene symbol column (str), and now we have only 6 columns. 
 ```
 
 ## DESeq2
@@ -106,14 +105,18 @@ colSums(counts(dds_filtered)) #total counts for every sample. this is sort of pr
 plotDispEsts(dds_deseq)
 ```
 
-Independant filering to get rid of unnecessary genes
+Independent filtering to get rid of unnecessary genes. Then we do log fold change shrinkage.
+Genes with large fold changes not due to low read counts remain un-shrunken while large fold changes and low read counts are shrunken.
 
 ```{r}
 dds_deseq_sig_res = results(dds_deseq, independentFiltering = TRUE, alpha = 0.05)
 summary(dds_deseq_sig_res)
-dds_deseq_sig_res_lfc <- lfcShrink(dds_deseq, coef = 2, res = dds_deseq_sig_res)
+dds_deseq_sig_res_lfc <- lfcShrink(dds_deseq, coef = 2, res = dds_deseq_sig_res) #This doesn't change the baseMean, pvalue or the adjusted p value. Only the log fold change is reduced and the associated lfcse is changed. 
 ```
 
+```{r}
+counts(dds_deseq, normalized = TRUE)
+```
 
 
 
