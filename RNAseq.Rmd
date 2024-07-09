@@ -33,6 +33,8 @@ library(ComplexHeatmap) #plot
 library(clusterProfiler) #pathway
 library(org.Hs.eg.db) #pathway
 library(apeglm)
+
+source("./visualizer.R")
 ```
 
 ## load data 
@@ -129,24 +131,112 @@ head(countNorm)
 ```
 
 ```{r}
-cumulative_DE <- function(df_df, FC_limit = 2, padj_name = 'padj', 
-                          FC_name = 'log2FoldChange', padj_threshold = 0.05, step = 0.2){
+calc_numDEGvsFC = function(df_df, logFC_name = 'log2FoldChange',logFC_threshold = 2, 
+                           padj_name = 'padj', padj_threshold = 0.05, step = 0.2){
   
-  FC_range = seq(0, FC_limit, step)
-  nDE_vct <- c()
-  for (logFC in FC_range){
-    nDE = df_df %>% filter(get(padj_name) < padj_threshold, 
-                                get(FC_name) > logFC | get(FC_name) < -logFC)
-    nDE_vct <- append(nDE_vct, length(rownames(nDE)))
+  fc_range = seq(0, logFC_threshold, step)
+  nDE_vct = c()
+  for (logFC in fc_range){
+    nDE = data.frame(df_df) %>% filter(get(padj_name) < padj_threshold, 
+                                get(logFC_name) > logFC | get(logFC_name) < -logFC)
+    nDE_vct = append(nDE_vct, length(rownames(nDE)))
   }
-  cumulative_DE_df = data.frame(FC_range,nDE_vct)
-  colnames(cumulative_DE_df) = c("Log_FC", "nDE")
+  cumulative_DE_df = data.frame(fc_range,nDE_vct)
+  colnames(cumulative_DE_df) = c("logFC", "nDEG")
   return(cumulative_DE_df)
 }
 
-cumulative_DE_dfans = cumulative_DE(res_de)
+calc_volcano <- function(df_df,logFC_name = 'log2FoldChange', logFC_threshold = 2,
+                         padj_name = 'padj', padj_threshold = 0.05){
+  
+  df_df_res <- data.frame(df_df) %>%
+    mutate(diffExpressed = case_when(get(padj_name) < padj_threshold & 
+                                       get(logFC_name) > logFC_threshold ~ "UP",
+                                     get(padj_name) < padj_threshold & 
+                                       get(logFC_name) < -logFC_threshold ~ "DOWN",
+                                     .default = "NO"), neglog10padj = -log10(get(padj_name)))
+  #We have mutated the df to add two columns, diffExpressed and neg_log10_padj
+  df_df_res$diffExpressed = factor(df_df_res$diffExpressed, levels = c("UP", "DOWN", "NO"))
+  return(df_df_res)
+}
+
+cumulative_DE_dfans = calc_numDEGvsFC(res_de)
+plot_line(cumulative_DE_dfans, c1, c("#DEG vs Log2FC", "Log 2 Fold Change", "# Differentially expressed genes"), marker = TRUE)
+
+volcano_res = calc_volcano(res_de)
+plot_volcano(volcano_res, col_vol, c("Volano Plot", "Log2 Fold Change", "- Log10 p-adj", "Genes"))
 ```
 
+Now, lets go ahead and do pathway analysis
+
+```{r}
+enrich_ez <- function(genelist, universe, select_dataset, organism="org.Hs.eg.db") {
+  #If the database has the word "GO", snip the remaining into ont
+  if (stringr::str_detect(select_dataset, "GO")) {
+    ont <- stringr::str_sub(select_dataset, start = 3L) #ont is ontology
+    select_enrich = clusterProfiler::enrichGO(gene = genelist, universe = universe,
+                      OrgDb = organism, keyType = "SYMBOL",
+                      readable = T, ont = ont,
+                      pvalueCutoff = 0.1, qvalueCutoff = 0.10)
+  } else {
+    db <- clusterProfiler::read.gmt(select_dataset)
+    select_enrich = clusterProfiler::enricher(genelist, TERM2GENE = db, universe = universe,
+                              pvalueCutoff = 0.1, qvalueCutoff = 0.10)
+  }
+  return(select_enrich)
+}
+
+res_de_up = res_de%>%filter(padj < 0.05 & log2FoldChange >2 )
+gobp_up <- enrich_ez(genelist = rownames(res_de_up),
+                     universe = rownames(res_de),
+                     select_dataset = "GOBP",
+                     organism = "org.Hs.eg.db")
+head(gobp_up)
+plot_enrich_std(gobp_up@result, col_enrich, c("","Description", "-Log10 adj-p","Bar"),
+                pos_neg = "pos")
+
+res_de_down = res_de%>%filter(padj < 0.05 & log2FoldChange < -2 )
+gobp_down <- enrich_ez(genelist = rownames(res_de_down),
+                     universe = rownames(res_de),
+                     select_dataset = "GOBP",
+                     organism = "org.Hs.eg.db")
+head(gobp_down)
+plot_enrich_std(gobp_up@result, col_enrich, c("","Description", "-Log10 adj-p","Bar"),
+                pos_neg = "neg")
+
+cnetplot(gobp_down,showCategory = 5, 
+         color.params = list(foldChange = res_de_down$log2FoldChange),
+         cex.params = list(category_label = 0.8, gene_label = 0.6))
+
+```
+
+# GSEA: Gene Set Enrichment Analysis
+
+```{r}
+#We need the gene names and its log fold change for the GSEA analysis
+logfc_list <- res_de$log2FoldChange
+names(logfc_list) <- rownames(res_de)
+logfc_list <- sort(logfc_list, decreasing = TRUE) # GSEA requires a rank in decreasing order
+
+set.seed(123) # keeps results consistent as gsea relies on random sampling
+gobp_gsea <- gseGO(geneList=logfc_list, ont ="BP",
+                                 keyType = "SYMBOL", minGSSize = 3, 
+                                 maxGSSize = 800, pvalueCutoff = 0.05, 
+                                 verbose = TRUE, OrgDb = org.Hs.eg.db,
+                                 pAdjustMethod = "fdr")
+
+
+plot_enrich_std(gobp_gsea@result, col_enrich, c("","Description", "-Log10 adj-p","Bar"),
+                pos_neg = "neg")
+
+BTM <- read.gmt("./data/BTM.gmt")
+
+btm_gsea <- GSEA(geneList = logfc_list, TERM2GENE=BTM,
+                 minGSSize = 3, maxGSSize = 800, pvalueCutoff = 0.05,
+                 verbose = TRUE, pAdjustMethod = "fdr")
+
+
+```
 
 
 
